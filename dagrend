@@ -1,0 +1,138 @@
+#!/usr/bin/env bash
+
+echo
+echo =============================================
+echo
+echo "🗡  DAGREND v0.0.1"
+echo "DAG colour renderer for terraform graph"
+echo
+echo "Outputting result to: '$1.$2'"
+echo
+echo =============================================
+echo
+
+if [ -z "$1" ]; then
+    echo
+    echo "❌ ERROR > ARG 1 > Please provide a filename as the first argument."
+    echo
+    echo "terraform graph | dagrend my-graph ..."
+    echo
+    exit 1
+fi
+
+if [ -z "$2" ]; then
+    echo
+    echo "❌ ERROR > ARG 2 > Please provide a file type as the second argument."
+    echo
+    echo "terraform graph | dagrend ... svg"
+    echo "terraform graph | dagrend ... pdf"
+    echo "terraform graph | dagrend ... png"
+    echo
+    exit 1
+fi
+
+# Main
+
+ALL=""
+
+# Edges
+
+EDGES=""
+
+# Terraform entity types
+
+VARS=""
+DATAS=""
+LOCALS=""
+MODULES=""
+OUTPUTS=""
+PROVIDERS=""
+RESOURCES=""
+
+ERRYTING=""
+
+while read -r line
+do
+    ERRYTING="$ERRYTING\n$line"
+done
+
+while read -r line
+do
+    ALL="$ALL\n$line"
+
+    EDGE=$(echo "$line" | grep '\->')
+
+    # Collect Edges
+
+    if [ ! -z "$EDGE" ]; then
+        EDGES="$EDGES\n$EDGE"
+        continue
+    fi
+
+    VAR=$(echo "$line" | grep -e '[ \.]var\.' | sed 's/\[height=1.5,/\[height=1.5, color="pink", style="filled",/g')
+    DATA=$(echo "$line" | grep -e '[ \.]data\.' | sed 's/\[height=1.5,/\[height=1.5, color="green", style="filled",/g')
+    LOCAL=$(echo "$line" | grep -e '[ \.]local\.' | sed 's/\[height=1.5,/\[height=1.5, color="blue", style="filled",/g')
+    OUTPUT=$(echo "$line" | grep -e '[ \.]output\.' | sed 's/\[height=1.5,/\[height=1.5, color="orange", style="filled",/g')
+    PROVIDER=$(echo "$line" | grep -e '[ \.]provider\.' | sed 's/\[height=1.5,/\[height=1.5, color="purple", style="filled",/g')
+
+    # RESOURCE=$(echo "$line" | grep -e '[ \.]data\.') # TODO: Work out the inverse of all the above)
+
+    MODULE=$(echo "$line" | grep '([ |\.]module\.[a-z]+)+ ' | sed 's/\[height=1.5,/\[height=1.5, color="red", style="filled",/g')
+
+    # NOTE: Module condition must go first, so it can continue loop before
+    #       module.XXX.resource_XXX matches and incorrectly colours the node
+    if [ ! -z "$MODULE" ]; then
+        MODULES="$MODULES\n$MODULE"
+        continue
+    fi
+
+    if [ ! -z "$VAR" ]; then
+        VARS="$VARS\n$VAR"
+        continue
+    fi
+
+    if [ ! -z "$DATA" ]; then
+        DATAS="$DATAS\n$DATA"
+        continue
+    fi
+
+    if [ ! -z "$LOCAL" ]; then
+        LOCALS="$LOCALS\n$LOCAL"
+        continue
+    fi
+
+    if [ ! -z "$OUTPUT" ]; then
+        OUTPUTS="$OUTPUTS\n$OUTPUT"
+        continue
+    fi
+
+    if [ ! -z "$PROVIDER" ]; then
+        PROVIDERS="$PROVIDERS\n$PROVIDER"
+        continue
+    fi
+
+done < <( echo "$ERRYTING" | sed 's/\\n/\n/g' | dot -Tdot | tr '\n' '%' | sed 's/,%/,/g' | sed 's/\\%//g' | sed 's/%/\n/g' | sed 's/height=0.5/height=1.5/g' )
+
+DOT_EDITED=$(
+    echo $ALL | sed 's/\\n/\n/g' \
+              | grep -v '\[root' \
+              | sed 's/newrank=true/newrank=true,ranksep="10 equally",rankdir=LR/g' \
+              | sed 's/subgraph root {/subgraph root {|||/g'
+)
+
+FILE_START=$(echo "$DOT_EDITED" | sed 's/|||/\n/g' | grep . | head -5)
+FILE_MID=$(echo "$EDGES\n$VARS\n$DATAS\n$LOCALS\n$OUTPUTS\n$PROVIDERS\n$MODULES\n$RESOURCES" | grep .)
+FILE_END=$(echo "$DOT_EDITED" | sed 's/|||/\n/g' | grep . | tail -2)
+
+DOT_FINAL="$FILE_START $FILE_MID $FILE_END"
+
+echo "$DOT_FINAL" | sed 's/\\n/\n/g' | dot -T$2 -o$1.$2
+
+if [ ! -z "$DAGREND_DEBUG" ]; then
+    echo "$DOT_FINAL" | sed 's/\\n/\n/g' > $1.$2.pre-processing.dot
+    echo "$DOT_FINAL" | sed 's/\\n/\n/g' | dot -Tdot -o$1.$2.post-processing.dot
+fi
+
+if [ ! -z "$DAGREND_AUTO_OPEN" ]; then
+    open $1.$2
+fi
